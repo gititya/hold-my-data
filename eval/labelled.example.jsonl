@@ -1,0 +1,7 @@
+// Shape reference only. ALL VALUES HERE ARE FAKE.
+// Your real examples go in eval/labelled/*.jsonl, which is gitignored and must stay that way.
+// One JSON object per line. Offsets are character positions into "text", end-exclusive.
+{"text": "here is the key sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA for the build", "spans": [{"entity": "ANTHROPIC_KEY", "start": 16, "end": 68}]}
+{"text": "email priya at priya.raman@example.com about the invoice", "spans": [{"entity": "PERSON", "start": 6, "end": 11}, {"entity": "EMAIL", "start": 15, "end": 37}]}
+{"text": "no sensitive data in this line at all", "spans": []}
+{"text": "db is postgres://admin:hunter2@10.0.0.4:5432/prod", "spans": [{"entity": "CONNECTION_STRING", "start": 6, "end": 48}]}

@@ -1,0 +1,128 @@
+# Per-context rule sets. One component, different strictness per place.
+#
+# threshold  minimum confidence (0..1) to redact. LOW ON PURPOSE — PRD section 8 pre-commits
+#            a recall bias: over-redacting is annoying, under-redacting is the failure.
+# strategy   consistent | label | mask | hash
+#            consistent -> [PERSON_1], [PERSON_2]; same value gets the same placeholder, so
+#                          the text stays readable. mapping is discarded after each run.
+#            label      -> <PERSON> for everything
+#            mask       -> ****
+#            hash       -> stable across runs; needs HOLDMYDATA_HASH_SALT. see the warning
+#                          in operators.py before using it.
+# entities   either an absolute list, or +add / -remove deltas against `inherits`.
+
+contexts:
+  default:
+    entities:
+      - ANTHROPIC_KEY
+      - OPENAI_KEY
+      - GOOGLE_API_KEY
+      - GITHUB_TOKEN
+      - SLACK_TOKEN
+      - STRIPE_KEY
+      - JWT
+      - PRIVATE_KEY
+      - CONNECTION_STRING
+      - URL_WITH_CREDENTIALS
+      - ELEVENLABS_KEY
+      - OPENROUTER_KEY
+      - EMAIL
+      - PHONE
+      - CREDIT_CARD
+      - PERSON
+    threshold: 0.4
+    strategy: consistent
+
+  # secrets only. fast, no model needed — for piping logs and diffs around.
+  secrets:
+    entities:
+      - ANTHROPIC_KEY
+      - OPENAI_KEY
+      - GOOGLE_API_KEY
+      - GITHUB_TOKEN
+      - SLACK_TOKEN
+      - STRIPE_KEY
+      - JWT
+      - PRIVATE_KEY
+      - CONNECTION_STRING
+      - URL_WITH_CREDENTIALS
+      - ELEVENLABS_KEY
+      - OPENROUTER_KEY
+    threshold: 0.5
+    strategy: label
+
+  # notes: people and places matter, my own email does not
+  notes:
+    inherits: default
+    entities: [+ADDRESS, -EMAIL]
+    threshold: 0.3
+
+  # national ID numbers. regex/checksum only, no model — fast and near-deterministic.
+  identity:
+    entities:
+      - IN_AADHAAR
+      - IN_PAN
+      - IN_GSTIN
+      - IN_VOTER
+      - IN_PASSPORT
+      - IN_VEHICLE_REGISTRATION
+      - US_SSN
+      - US_ITIN
+      - US_PASSPORT
+      - US_DRIVER_LICENSE
+      - US_BANK_NUMBER
+    threshold: 0.4
+    strategy: label
+
+  # support: strictest. customer identifiers and national IDs on top of everything else.
+  # A host product extends THIS context at runtime with its own customer entities —
+  # see holdmydata.extend(). It does not edit this file.
+  support:
+    inherits: default
+    entities:
+      - +CUSTOMER_ID
+      - +ADDRESS
+      - +IN_AADHAAR
+      - +IN_PAN
+      - +IN_GSTIN
+      - +US_SSN
+      - +US_BANK_NUMBER
+    threshold: 0.25
+    strategy: consistent
+
+  # ---- region switchboard ----
+  # `regions:` turns whole groups on. Combine with `entities:` +/- deltas to refine.
+  # Valid regions: global, india, usa, uk, medical, secrets, meaning, custom.
+
+  india_only:
+    regions: [india]
+    threshold: 0.4
+    strategy: label
+
+  usa_only:
+    regions: [usa]
+    threshold: 0.4
+    strategy: label
+
+  uk_only:
+    regions: [uk]
+    threshold: 0.4
+    strategy: label
+
+  # everything off except medical
+  medical_only:
+    regions: [medical]
+    threshold: 0.4
+    strategy: label
+
+  # India + the universal stuff, no US/UK noise. Probably your realistic default.
+  india_full:
+    regions: [india, global, secrets, meaning]
+    threshold: 0.35
+    strategy: consistent
+
+  # every entity defined, all detectors. slowest; use to find what you are missing.
+  everything:
+    regions: [global, india, usa, uk, medical, secrets, meaning, custom]
+    threshold: 0.3
+    strategy: consistent

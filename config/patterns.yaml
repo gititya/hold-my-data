@@ -1,0 +1,204 @@
+# Regex patterns, keyed by entity name from taxonomy.yaml.
+#
+# A regex is a search pattern with wildcards: `\d{3}` means "three digits", `[A-Za-z]+`
+# means "one or more letters". It matches shape, not meaning — which is exactly right for
+# keys and card numbers, and useless for names.
+#
+# score is 0..1 confidence. Deterministic shapes (an Anthropic key cannot be anything else)
+# get 1.0. Loose shapes get less, so the context threshold can filter them.
+#
+# Every entity declaring `detect_with: regex` MUST have a pattern here or startup fails —
+# otherwise it would silently never fire, which looks identical to "clean input".
+
+ANTHROPIC_KEY:
+  - name: anthropic_api
+    regex: '\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_\-]{40,}'
+    score: 1.0
+  # OCR-tolerant variant. Tesseract drops hyphens: `sk-ant-api03-` came back as
+  # `sk-antapi03-`, and the strict pattern above missed a real key in a screenshot.
+  # Separators optional, slightly lower score.
+  - name: anthropic_api_ocr
+    regex: '\bsk-?ant-?(?:api|admin)\d{2}-?[A-Za-z0-9_\-]{40,}'
+    score: 0.9
+
+OPENAI_KEY:
+  - name: openai_project
+    regex: '\bsk-proj-[A-Za-z0-9_\-]{20,}'
+    score: 1.0
+  - name: openai_classic
+    regex: '\bsk-[A-Za-z0-9]{32,}\b'
+    score: 0.9
+  # OCR twin: Tesseract drops the delimiter hyphens (sk-proj- -> skproj).
+  - name: openai_project_ocr
+    regex: '\bsk-?proj-?[A-Za-z0-9_\-]{20,}'
+    score: 0.85
+
+GOOGLE_API_KEY:
+  - name: google_aiza
+    regex: '\bAIza[A-Za-z0-9_\-]{35}\b'
+    score: 1.0
+  # OCR twin: a dropped hyphen/underscore in the body shortens it off the exact 35.
+  - name: google_aiza_ocr
+    regex: '\bAIza[A-Za-z0-9_\-]{32,37}\b'
+    score: 0.85
+
+GITHUB_TOKEN:
+  - name: github_pat
+    regex: '\bgh[pousr]_[A-Za-z0-9]{36,}\b'
+    score: 1.0
+  # OCR twin: the underscore after the ghp prefix is dropped.
+  - name: github_pat_ocr
+    regex: '\bgh[pousr]_?[A-Za-z0-9]{36,}\b'
+    score: 0.85
+
+SLACK_TOKEN:
+  - name: slack
+    regex: '\bxox[baprs]-[A-Za-z0-9\-]{10,}'
+    score: 1.0
+  # OCR twin: the delimiter hyphen after xoxb is dropped.
+  - name: slack_ocr
+    regex: '\bxox[baprs]-?[A-Za-z0-9\-]{10,}'
+    score: 0.85
+
+STRIPE_KEY:
+  - name: stripe
+    regex: '\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b'
+    score: 1.0
+  # OCR twin: both delimiter underscores dropped (sk_live_ -> sklive).
+  - name: stripe_ocr
+    regex: '\b(?:sk|pk|rk)_?(?:live|test)_?[A-Za-z0-9]{20,}\b'
+    score: 0.85
+
+JWT:
+  - name: jwt
+    regex: '\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'
+    score: 1.0
+  # OCR twin: dots between the three segments can OCR as spaces.
+  - name: jwt_ocr
+    regex: '\beyJ[A-Za-z0-9_\-]{10,}[.\s]+[A-Za-z0-9_\-]{10,}[.\s]+[A-Za-z0-9_\-]{10,}'
+    score: 0.85
+
+PRIVATE_KEY:
+  - name: pem_block
+    regex: '-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----'
+    score: 1.0
+  # OCR twin: Tesseract mangles the dash run (----- -> a single em dash or fewer),
+  # so anchor on the words and let the leading dashes and spacing vary.
+  - name: pem_block_ocr
+    regex: '-{1,}\s*BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY'
+    score: 0.9
+
+ELEVENLABS_KEY:
+  - name: elevenlabs
+    regex: '\bsk_[A-Za-z0-9]{40,}\b'
+    score: 0.9
+
+OPENROUTER_KEY:
+  - name: openrouter
+    regex: '\bsk-or-v1-[A-Za-z0-9]{32,}\b'
+    score: 1.0
+
+CONNECTION_STRING:
+  - name: db_uri
+    regex: '\b(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp)://[^\s:@]+:[^\s@]+@\S+'
+    score: 1.0
+
+URL_WITH_CREDENTIALS:
+  - name: http_basic
+    regex: '\bhttps?://[^\s:@/]+:[^\s@/]+@\S+'
+    score: 1.0
+
+EMAIL:
+  - name: email
+    regex: '\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'
+    score: 0.95
+
+PHONE:
+  - name: intl
+    # deliberately loose about grouping: +91 98765 43210, +1 (555) 123-4567,
+    # +44 20 7946 0958 all group differently. anchoring on the leading + is what makes
+    # this safe to keep loose.
+    regex: '\+\d[\d\s\-()]{7,16}\d'
+    score: 0.7
+  - name: plain_10
+    regex: '\b\d{10}\b'
+    score: 0.4          # deliberately weak: any 10-digit number matches this
+
+IP_ADDRESS:
+  - name: ipv4
+    regex: '\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\b'
+    score: 0.8
+
+# ---- India, patterns Presidio does not ship ----
+IN_UPI:
+  - name: upi_handle
+    # handle list is long and grows; anchoring on the @provider shape with a known-ish
+    # suffix set keeps this from matching every email address.
+    regex: '\b[a-zA-Z0-9][a-zA-Z0-9._\-]{2,49}@(?:ok(?:sbi|hdfcbank|icici|axis)|ybl|paytm|apl|upi|ibl|axl|abfspay|freecharge|jupiteraxis|fbl|sbi|hdfcbank|icici|axisbank|yesbank|kotak|idfcbank|indus|barodampay|pnb|unionbank|cnrb|dbs|airtel|jio|slice|naviaxis|timecosmos|rmhdfcbank)\b'
+    score: 0.95
+
+IN_PAN:
+  - name: pan_left_anchored
+    # 5 letters + 4 digits + 1 letter. Anchored on the LEFT only: a converter that drops the
+    # space between two table cells leaves ABCDE1234F123456789012, and a trailing \b never
+    # matches. Left anchor still stops it firing mid-token. On real ITR documents this moves
+    # 56 -> 65 hits and every one of the extra 9 is a genuine PAN.
+    # No checksum exists for PAN, so presidio's context scoring stays the precise layer and
+    # this is the recall net. PRD section 8 pre-commits that bias.
+    #
+    # The trailing [0-9]* is not cosmetic. Without it the match covers only the PAN, wins the
+    # overlap against the model hit on the glued token (deterministic beats model in
+    # _prefer_specific), and leaves the glued tail bare -- output was [PAN_9]999999999999,
+    # strictly worse than before this pattern existed. Swallow the digits that are glued on.
+    regex: '(?<![A-Z0-9])[A-Z]{5}[0-9]{4}[A-Z][0-9]*'
+    score: 0.85
+
+IN_IFSC:
+  - name: ifsc
+    # 4 letters + 0 + 6 alphanumeric. the fixed zero in position 5 is what makes this safe.
+    regex: '\b[A-Z]{4}0[A-Z0-9]{6}\b'
+    score: 0.9
+
+IN_PINCODE:
+  - name: pincode
+    # 6 digits, first digit 1-8. weak on its own -- any 6-digit number matches -- so the
+    # score is low and it needs a permissive context threshold to fire.
+    regex: '\b[1-8]\d{5}\b'
+    score: 0.3
+
+IN_PASSPORT:
+  # Presidio's built-in recogniser only catches 1 letter + 7 digits. Real examples showed two
+  # more shapes it misses: 1 letter + 6 digits, 2 letters + 6 digits. This single pattern
+  # covers all three -- the digit-count range plus the word boundary keeps the letter/digit
+  # split unambiguous. Low score: bare shape, no checksum, needs context to not over-fire.
+  - name: passport_shapes
+    regex: '\b[A-Z]{1,2}[0-9]{6,7}\b'
+    score: 0.4
+
+IN_VEHICLE_REGISTRATION:
+  # State (2 letters) + RTO code (2 digits) + series (1-2 letters) + number (4 digits), with
+  # an optional space or hyphen between each group -- how plates are actually written, unlike
+  # Presidio's compact-only built-in.
+  - name: plate_spaced
+    regex: '\b[A-Z]{2}[\s\-]?\d{2}[\s\-]?[A-Z]{1,2}[\s\-]?\d{4}\b'
+    score: 0.7
+
+IN_DRIVING_LICENCE:
+  # RTO format: 2-letter state, 2-digit RTO office, 4-digit year, 7-digit serial.
+  # Presidio has no Indian DL recogniser -- this is a genuine gap, written from the
+  # published RTO format, not copied (both reference repos are unlicensed).
+  - name: dl_rto
+    regex: '\b[A-Z]{2}[-\s]?\d{2}[-\s]?(?:19|20)\d{2}[-\s]?\d{7}\b'
+    score: 0.9
+  - name: dl_compact
+    regex: '\b[A-Z]{2}\d{13}\b'
+    score: 0.8
+
+IN_PHONE:
+  # TRAI allocates mobile numbers starting 6-9 only. That first-digit constraint is what
+  # makes this far tighter than "any 10 digits" -- it rules out years, ids, and order
+  # numbers that the generic PHONE pattern happily eats.
+  # written 5+5 as often as it is written solid, so the internal separator is optional
+  - name: in_mobile
+    regex: '\b(?:\+91[\s\-]?|0)?[6-9]\d{4}[\s\-]?\d{5}\b'
+    score: 0.6

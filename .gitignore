@@ -1,0 +1,59 @@
+# --- secrets ---
+.env*
+*.pem
+*.p12
+*serviceaccount*
+*.key
+
+# --- the eval set contains REAL sensitive values. it must never be committed. ---
+eval/labelled/
+!eval/labelled/.gitkeep
+
+# --- evidence may quote real inputs. review before ever un-ignoring. ---
+evidence/*.md
+!evidence/.gitkeep
+
+# --- models ---
+models/
+*.onnx
+*.safetensors
+*.bin
+
+# --- fine-tuning runs: multi-GB checkpoints, training logs, prepared data ---
+finetune_runs/
+
+# --- python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# --- os ---
+.DS_Store
+
+# --- local agent and planning context (kept on the author's Mac, never published) ---
+.claude/
+:memory:.ses
+AGENTS.md
+BUILDS.md
+CLAUDE.md
+HANDOFF.md
+PII_COVERAGE.md
+PRD.md
+SKILL.md
+SPEC.md
+workflow.tldraw
+scripts/apply_canvas_update.sh
+scripts/update_canvas.js
+plans/
+research/
+
+# --- retired installer/TUI experiments; the supported public path is clone + uv ---
+install.sh
+packaging/mac/
+holdmydata/tui.py
+tests/test_tui.py

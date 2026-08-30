@@ -1,0 +1,404 @@
+# The entity list. This file is the product (PRD 5b) — code hardcodes nothing.
+#
+# Adding a category = adding an entry here. No retraining, ever.
+#
+# name         UPPER_SNAKE, unique
+# description  plain English. GLiNER reads this VERBATIM at call time, so write it the way
+#              you would explain it to a person. Vague description -> vague detection.
+# detect_with  regex | gliner | both
+# severity     critical | high | medium | low   (documentation for you, not logic)
+# replacement  optional; the placeholder to use. omit for [ENTITY_N].
+#
+# THIS IS A STARTING POINT, NOT YOUR TAXONOMY. PRD section 7 says the first real task is to
+# make this list yours. Delete what you do not care about — every entity you keep and never
+# check is a false sense of coverage.
+
+entities:
+  # ---- secrets: exact shapes, regex is the right tool, recall should be ~1.0 ----
+  - name: ANTHROPIC_KEY
+    description: an Anthropic API key
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[ANTHROPIC_KEY]"
+
+  - name: OPENAI_KEY
+    description: an OpenAI API key
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[OPENAI_KEY]"
+
+  - name: GOOGLE_API_KEY
+    description: a Google or Firebase API key
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[GOOGLE_API_KEY]"
+
+  - name: GITHUB_TOKEN
+    description: a GitHub personal access token
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[GITHUB_TOKEN]"
+
+  - name: SLACK_TOKEN
+    description: a Slack bot or app token
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[SLACK_TOKEN]"
+
+  - name: STRIPE_KEY
+    description: a Stripe secret or publishable key
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[STRIPE_KEY]"
+
+  - name: JWT
+    description: a JSON Web Token
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[JWT]"
+
+  - name: PRIVATE_KEY
+    description: a PEM private key block
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[PRIVATE_KEY]"
+
+  - name: CONNECTION_STRING
+    description: a database connection string containing credentials
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[CONNECTION_STRING]"
+
+  - name: URL_WITH_CREDENTIALS
+    description: a URL with a username and password embedded in it
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[URL_WITH_CREDENTIALS]"
+
+  - name: ELEVENLABS_KEY
+    description: an ElevenLabs API key
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[ELEVENLABS_KEY]"
+
+  - name: OPENROUTER_KEY
+    description: an OpenRouter API key
+    detect_with: [regex]
+    severity: critical
+    region: secrets
+    replacement: "[OPENROUTER_KEY]"
+
+  # ---- structured personal identifiers: regex catches the shape ----
+  - name: EMAIL
+    description: an email address
+    detect_with: [regex]
+    severity: high
+    region: global
+    replacement: "[EMAIL]"
+
+  - name: PHONE
+    description: a phone number
+    detect_with: [both]
+    severity: high
+    region: global
+    replacement: "[PHONE]"
+
+  - name: CREDIT_CARD
+    description: a credit or debit card number
+    # was a bare "13-19 digits" regex -- matched any long account/PPF/reference number.
+    # Presidio's built-in recogniser actually checks the Luhn digit (the real validation
+    # every card number must pass), so switched to that instead of hand-rolling it. 2026-08-18.
+    detect_with: [presidio]
+    severity: critical
+    region: global
+    replacement: "[CREDIT_CARD]"
+
+  - name: IP_ADDRESS
+    description: an IP address
+    detect_with: [regex]
+    severity: medium
+    region: global
+    replacement: "[IP_ADDRESS]"
+
+  # ---- India: Presidio ships these, several with real checksum validation ----
+  # `detect_with: [presidio]` means "use Presidio's own recogniser". The name must match
+  # Presidio's exactly. Free, maintained by someone else, better than anything hand-rolled.
+  - name: IN_AADHAAR
+    description: an Indian Aadhaar number
+    detect_with: [presidio]
+    severity: critical
+    region: india
+    replacement: "[AADHAAR]"
+
+  - name: IN_PAN
+    description: an Indian PAN (permanent account number)
+    # regex alongside presidio: presidio's built-in anchors on \b both sides, so a PAN glued
+    # to the next table cell by a markdown converter (ABCDE1234F123456789012) escapes it.
+    # Found live -- 8 real PANs survived redaction of AIS and TIS that way.
+    detect_with: [regex, presidio]
+    severity: critical
+    region: india
+    # Presidio scores a real PAN 0.45 and a bare 10-digit number 0.40. Tight, but it is the
+    # difference between redacting a PAN and redacting every phone number in the document.
+    min_score: 0.45
+    replacement: "[PAN]"
+
+  - name: IN_GSTIN
+    description: an Indian GST identification number
+    detect_with: [presidio]
+    severity: high
+    region: india
+    replacement: "[GSTIN]"
+
+  - name: IN_VOTER
+    description: an Indian voter ID number
+    detect_with: [presidio]
+    severity: high
+    region: india
+    replacement: "[VOTER_ID]"
+
+  - name: IN_PASSPORT
+    description: an Indian passport number
+    # Presidio's built-in recogniser only knows 1 letter + 7 digits. Adi's real passports
+    # showed 2 more shapes it silently missed (1 letter + 6 digits, 2 letters + 6 digits).
+    # Added regex 2026-08-18 to cover those too; kept presidio for the shape it already gets
+    # right plus its context-word scoring.
+    detect_with: [presidio, regex]
+    severity: critical
+    region: india
+    replacement: "[PASSPORT]"
+
+  - name: IN_VEHICLE_REGISTRATION
+    description: an Indian vehicle registration number
+    # Presidio's built-in recogniser only accepts the compact form (KA03NM7833) -- real
+    # plates, Adi's own included, are usually written with spaces or hyphens. Added regex
+    # 2026-08-18 to cover that.
+    detect_with: [presidio, regex]
+    severity: medium
+    region: india
+    replacement: "[VEHICLE_REG]"
+
+  # ---- USA ----
+  - name: US_SSN
+    description: a US social security number
+    detect_with: [presidio]
+    severity: critical
+    region: usa
+    replacement: "[SSN]"
+
+  - name: US_ITIN
+    description: a US individual taxpayer identification number
+    detect_with: [presidio]
+    severity: critical
+    region: usa
+    replacement: "[ITIN]"
+
+  - name: US_PASSPORT
+    description: a US passport number
+    detect_with: [presidio]
+    severity: critical
+    region: usa
+    replacement: "[PASSPORT]"
+
+  - name: US_DRIVER_LICENSE
+    description: a US driver license number
+    detect_with: [presidio]
+    severity: high
+    region: usa
+    replacement: "[DRIVER_LICENSE]"
+
+  - name: US_BANK_NUMBER
+    description: a US bank account number
+    detect_with: [presidio]
+    severity: critical
+    region: usa
+    replacement: "[BANK_ACCOUNT]"
+
+  # IBAN_CODE and CRYPTO removed 2026-08-18 -- out of scope, not relevant to India-only use.
+
+  # ---- meaning-based: no fixed shape, this is what the model layer is for ----
+  - name: PERSON
+    description: the name of a person
+    detect_with: [gliner]
+    severity: high
+    region: meaning
+
+  - name: DOB
+    # 2026-08-21: re-running the full text eval found the plain "a person's date of birth"
+    # wording pulled in transaction dates and reporting periods too (GLiNER is zero-shot for
+    # this label, never fine-tuned) -- "18/07/2025" on a bank statement line, "01/04/2025 to
+    # 31/03/2026" on a tax period. Tested directly against the raw model: naming what it is
+    # NOT rejects both of those while barely moving the real-DOB score (0.97 -> 0.87 on a
+    # genuine "born 4 March 1982").
+    description: a person's date of birth, not a transaction date, document date, or reporting period
+    detect_with: [gliner]
+    severity: high
+    region: meaning
+    replacement: "[DOB]"
+
+  # OPF (which used to sit here as PRIVATE_EMAIL/PRIVATE_ADDRESS) is gone as of 2026-08-18.
+  # "Is this mine or someone else's" is now a --who mine filter in identity.py, applied to
+  # the plain EMAIL/ADDRESS/PERSON entities below -- it covers every entity type, not just
+  # the 8 OPF happened to know, and needs no model.
+  # ACCOUNT_NUMBER removed 2026-08-18 -- pure GLiNER guess with no regex backing,
+  # 0/14 correct in eval (evidence/eval-baseline-vs-full.md). Not worth keeping.
+
+  - name: ADDRESS
+    description: a physical or postal address
+    # GLiNER scored 0% recall on real Indian addresses (evidence/eval-full-2026-08-18.md).
+    # Switched to a model actually trained for this: shiprocket-ai/open-indicbert-indian-
+    # address-ner -- 80% precision / 100% recall on the same real addresses. 2026-08-18.
+    detect_with: [address_model]
+    severity: high
+    region: meaning
+    replacement: "[ADDRESS]"
+
+  # ORGANISATION removed 2026-08-18 -- not something Adi asked to protect (his own PII,
+  # not company names), 0% precision/recall in eval, 12 false alarms.
+
+  - name: CUSTOMER_ID
+    description: a customer account number or internal reference id
+    detect_with: [gliner]
+    severity: high
+    region: meaning
+    replacement: "[CUSTOMER_ID]"
+
+  # ---- UK ----
+  - name: UK_NINO
+    description: a UK national insurance number
+    detect_with: [presidio]
+    severity: critical
+    region: uk
+    replacement: "[NINO]"
+
+  - name: UK_NHS
+    description: a UK NHS number
+    detect_with: [presidio]
+    severity: critical
+    region: uk
+    # WARNING: an NHS number is 10 digits with a modulus-11 checksum, and Indian mobile
+    # numbers are also 10 digits -- roughly 1 in 11 of them pass that checksum and score
+    # 1.0. No threshold can separate them. Do NOT enable region `uk` alongside Indian data
+    # unless you accept phone numbers being redacted as NHS numbers.
+    replacement: "[NHS]"
+
+  - name: UK_PASSPORT
+    description: a UK passport number
+    detect_with: [presidio]
+    severity: critical
+    region: uk
+    replacement: "[PASSPORT]"
+
+  - name: UK_DRIVING_LICENCE
+    description: a UK driving licence number
+    detect_with: [presidio]
+    severity: high
+    region: uk
+    replacement: "[DRIVING_LICENCE]"
+
+  - name: UK_POSTCODE
+    description: a UK postcode
+    detect_with: [presidio]
+    severity: medium
+    region: uk
+    replacement: "[POSTCODE]"
+
+  - name: UK_VEHICLE_REGISTRATION
+    description: a UK vehicle registration number
+    detect_with: [presidio]
+    severity: medium
+    region: uk
+    replacement: "[VEHICLE_REG]"
+
+  # ---- India, additions Presidio does not ship ----
+  - name: IN_UPI
+    description: an Indian UPI payment ID, like name@oksbi or 9876543210@ybl
+    detect_with: [regex]
+    severity: critical
+    region: india
+    replacement: "[UPI_ID]"
+
+  - name: IN_IFSC
+    description: an Indian IFSC bank branch code
+    detect_with: [regex]
+    severity: high
+    region: india
+    replacement: "[IFSC]"
+
+  - name: IN_PINCODE
+    description: an Indian postal PIN code
+    detect_with: [regex]
+    severity: low
+    region: india
+    replacement: "[PINCODE]"
+
+  # ---- medical / clinical ----
+  # These come from a separate HuggingFace model (blaze999/Medical-NER) loaded by Presidio's
+  # MedicalNERRecognizer. It is a SEPARATE ~500MB download from GLiNER and OPF, and it only
+  # loads when a context actually asks for these entities.
+  - name: MEDICAL_DISEASE_DISORDER
+    description: a disease or disorder
+    detect_with: [presidio]
+    severity: critical
+    region: medical
+    replacement: "[CONDITION]"
+
+  - name: MEDICAL_MEDICATION
+    description: a drug or medication name
+    detect_with: [presidio]
+    severity: critical
+    region: medical
+    replacement: "[MEDICATION]"
+
+  - name: MEDICAL_THERAPEUTIC_PROCEDURE
+    description: a surgical or diagnostic procedure
+    detect_with: [presidio]
+    severity: high
+    region: medical
+    replacement: "[PROCEDURE]"
+
+  - name: MEDICAL_HISTORY
+    description: a reference to patient medical history
+    detect_with: [presidio]
+    severity: high
+    region: medical
+    replacement: "[MEDICAL_HISTORY]"
+
+  - name: MEDICAL_FAMILY_HISTORY
+    description: a reference to family medical history
+    detect_with: [presidio]
+    severity: high
+    region: medical
+    replacement: "[FAMILY_HISTORY]"
+
+  - name: MEDICAL_LICENSE
+    description: a medical license number
+    detect_with: [presidio]
+    severity: high
+    region: medical
+    replacement: "[MEDICAL_LICENSE]"
+
+  - name: IN_DRIVING_LICENCE
+    description: an Indian driving licence number
+    detect_with: [regex]
+    severity: critical
+    region: india
+    replacement: "[DRIVING_LICENCE]"
+
+  - name: IN_PHONE
+    description: an Indian mobile number
+    detect_with: [regex]
+    severity: high
+    region: india
+    replacement: "[IN_PHONE]"
