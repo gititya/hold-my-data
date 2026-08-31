@@ -23,7 +23,7 @@ Text is masked with labels such as `[EMAIL_1]`. Images get a solid box over matc
 
 **F1** is a combined score that balances precision and recall.
 
-I chose to prioritize recall: I would rather hide too much than miss personal information.
+I chose to intentionally priority recall because the risk of missing my personal data > the tool redacting "too much" data. 
 
 The current text evaluation contains 1,051 labelled examples. Overall precision is **70.1%**, recall is **99.0%**, and F1 is **82.1%**. The evaluation includes real personal documents, so the raw labelled files are not public. The evaluation code is included in this repository, and I will keep updating the results as the stress tests grow.
 
@@ -46,8 +46,6 @@ The current text evaluation contains 1,051 labelled examples. Overall precision 
 | General phone number | 25.0% | 100% | 1 |
 
 Low address and date-of-birth precision means the tool hides too much; it does not mean the measured items leaked. Results based on fewer than about 20 labelled items are early signals, not strong accuracy claims.
-
-Other configured types do not yet have enough labelled examples for a public precision and recall score. They include Google, GitHub, Slack, and Stripe keys; JWTs; private keys; credit cards; IP addresses; several Indian, US, and UK identifiers; and medical terms. They are implemented, but not yet measured well enough to make an accuracy claim.
 
 ### Measured image results
 
@@ -106,8 +104,6 @@ These are the model families pulled by the current release:
 
 With every English model, expect about **3.0 GB** of total disk use. Adding Hindi and Tamil takes it to about **3.1 GB**.
 
-On one clean test connection, the program installed in 24 seconds, the English image models took another 68 seconds, the text models took another 92 seconds, and Hindi plus Tamil took another 18 seconds. Network speed and model hosts can make this take several minutes.
-
 > [!INFO]
 > The first model-backed text run took 16 seconds in the clean test. A clear synthetic image took 13 seconds; the 19 real test images averaged 53.9 seconds each. Difficult scans can take more than 100 seconds.
 
@@ -134,7 +130,7 @@ hold-my-data image -i photo.png -o photo.redacted.png \
   --who everyone --context india_full
 ```
 
-Hold My Data does not read PDFs directly yet. Extract a PDF to text or convert its pages to images first.
+Hold My Data does not read PDFs directly yet. Extract a PDF to text or convert its pages to images first - I love using [ihatepdf](https://www.ihatepdf.cv/) or [marker](https://github.com/datalab-to/marker) or [markitdown](https://github.com/microsoft/markitdown), depending on how your PDFs are. 
 
 ### Redact only my information
 
@@ -149,7 +145,7 @@ Normal redaction does not ask for or require your personal details. `--who mine`
 
 ## Use as a Python library
 
-Hold My Data is a local Python library, not a hosted API. Install it into a project from the clone:
+Hold My Data is a local Python library, not a hosted API(yet). Install it into a project from the clone:
 
 ```bash
 git clone https://github.com/gititya/hold-my-data.git
@@ -190,8 +186,7 @@ The Python library does not install the command-line tool's network block automa
 
 ## Known limits
 
-- No direct PDF ingestion or graphical app in v0.1.1.
-- Kannada OCR is not supported. Hindi and Tamil are optional.
+- No direct PDF ingestion or graphical app in v0.1.1. Coming soon!
 - Blurry, dark, rotated, or unusual scans can still lose text during OCR.
 - US, UK, and medical coverage needs larger labelled evaluations.
 - Address and date-of-birth detection currently over-redacts.
