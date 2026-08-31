@@ -1,27 +1,63 @@
 # Hold My Data
 
-Local redaction for text, documents, and images. Hold My Data finds personal information
-and secrets, replaces text with labels such as `[EMAIL_1]`, and paints solid boxes over
-matching text in images. Redaction runs on your computer. It has no cloud API.
+I'm a little fastidious about sharing images and text files that contain my personal information. Tools such as [Presidio](https://github.com/data-privacy-stack/presidio) had trouble finding names—Indian names, to be precise—so I built a personal redaction tool. Of course, it had to run locally.
 
-The project combines:
+It uses:
 
-- patterns and checksums for fixed formats such as email, PAN, Aadhaar, GSTIN, and API keys;
-- Presidio recognizers for supported national identifiers;
-- a local GLiNER model for names and dates of birth;
-- a local Indian-address model; and
-- local PaddleOCR for images.
+1. Patterns and checksums for fixed formats such as email addresses, PAN, Aadhaar, GSTIN, and API keys.
+2. Presidio's built-in recognizers for supported identifiers.
+3. A local Indian-address model.
+4. A fine-tuned local GLiNER model for names, especially Indian names, and dates of birth.
+5. Local PaddleOCR for images.
 
-Model download is a separate command that needs internet access. Once the models are on
-disk, Hold My Data blocks outbound network connections while redacting.
+Text is masked with labels such as `[EMAIL_1]`. Images get a solid box over matching text. Downloading models needs an internet connection; once they are downloaded, the command-line tool blocks outbound network connections while redacting.
 
-> Hold My Data reduces risk; it cannot promise that every item will be found. Review a
-> redacted file before sharing it, especially when the source is a blurry photo or scan.
+> [!WARNING]
+> Hold My Data cannot promise that it will find everything. Double-check the result before sharing it, especially when the source is a blurry photo or scan.
 
-## Install on a Mac
+## What it detects, and how well
 
-Requirements: macOS, Git, and about 1.6 GB of free disk space for the program. Python is
-installed inside Hold My Data's private environment.
+**Precision** means: of everything flagged, how much was correct.
+
+**Recall** means: of everything that should have been flagged, how much was found.
+
+**F1** is a combined score that balances precision and recall.
+
+I chose to prioritize recall: I would rather hide too much than miss personal information.
+
+The current text evaluation contains 1,051 labelled examples. Overall precision is **70.1%**, recall is **99.0%**, and F1 is **82.1%**. The evaluation includes real personal documents, so the raw labelled files are not public. The evaluation code is included in this repository, and I will keep updating the results as the stress tests grow.
+
+### Measured text results
+
+| Entity | Precision | Recall | Labelled items |
+|---|---:|---:|---:|
+| Person name | 91.2% | 99.5% | 910 |
+| Indian PAN | 100% | 100% | 19 |
+| Indian GSTIN | 100% | 100% | 4 |
+| Indian Aadhaar | 100% | 100% | 3 |
+| Indian voter ID | 100% | 100% | 3 |
+| Indian vehicle registration | 100% | 100% | 4 |
+| Indian passport | 62.5% | 100% | 5 |
+| Indian phone | 100% | 100% | 2 |
+| Email | 100% | 100% | 4 |
+| Anthropic, OpenAI, OpenRouter, and ElevenLabs keys combined | 100% | 100% | 11 |
+| Address | 14.3% | 100% | 6 |
+| Date of birth | 1.5% | 100% | 4 |
+| General phone number | 25.0% | 100% | 1 |
+
+Low address and date-of-birth precision means the tool hides too much; it does not mean the measured items leaked. Results based on fewer than about 20 labelled items are early signals, not strong accuracy claims.
+
+Other configured types do not yet have enough labelled examples for a public precision and recall score. They include Google, GitHub, Slack, and Stripe keys; JWTs; private keys; credit cards; IP addresses; several Indian, US, and UK identifiers; and medical terms. They are implemented, but not yet measured well enough to make an accuracy claim.
+
+### Measured image results
+
+I marked 31 pieces of text across 19 test images. PaddleOCR successfully read all 31. This only measures whether the image reader could see that text—it does **not** prove that every piece of personal information in an image will be found and redacted. If the scan is too unclear or a detector fails, Hold My Data refuses to create an output instead of returning a file that only looks safe.
+
+## Setup
+
+Requirements: macOS, Git, and about 1.6 GB of free disk space for the program. Python is installed inside Hold My Data's private environment. Running every model may use about 4 GB of memory; close other heavy apps if your Mac has 8 GB of RAM.
+
+### I know what `brew` means on my Mac
 
 ```bash
 brew install uv
@@ -31,19 +67,9 @@ uv tool install --python 3.13 .
 hold-my-data check
 ```
 
-No GitHub account is needed to clone a public repository. If `hold-my-data` is not found
-after installation, run `uv tool update-shell`, close Terminal, and open it again.
+You do not need a GitHub account. If `hold-my-data` is not found after installation, run `uv tool update-shell`, close Terminal, and open it again.
 
-You can also install the fixed v0.1.1 release without cloning:
-
-```bash
-brew install uv
-uv tool install --python 3.13 \
-  "hold-my-data @ https://github.com/gititya/hold-my-data/archive/refs/tags/v0.1.1.tar.gz"
-hold-my-data check
-```
-
-## Prompt for Codex, Claude Code, or Cursor
+### I rely on Codex, Claude Code, or Cursor
 
 Paste this into your coding agent:
 
@@ -69,72 +95,61 @@ hold-my-data download-models                 # both of the above
 hold-my-data download-models --images-only --with-indic-ocr
 ```
 
-These are the exact model families pulled by the current release:
+These are the model families pulled by the current release:
 
 | Purpose | Model | Measured disk use |
 |---|---|---:|
 | Names and dates of birth | `hugmyface0907/gliner-indian-names-v1` | 1.1 GB |
 | Indian addresses | `shiprocket-ai/open-indicbert-indian-address-ner` | 140 MB |
 | English image reading | PaddleOCR v6 detection, recognition, orientation, and document models | 177 MB |
-| Hindi and Tamil image reading | PaddleOCR language models, added to English | about 100 MB more |
+| Optional Hindi and Tamil image reading | PaddleOCR language models, added to English | about 100 MB more |
 
-Measured on a clean install on 30 August 2026:
+With every English model, expect about **3.0 GB** of total disk use. Adding Hindi and Tamil takes it to about **3.1 GB**.
 
-| Setup | Approximate total disk use | Download time on the test connection |
-|---|---:|---:|
-| Program only | 1.6 GB | 24 seconds |
-| Program + English OCR | 1.8 GB | 68 seconds more |
-| Program + text models | 2.8 GB | 92 seconds more |
-| Program + all English models | 3.0 GB | about 3 minutes total |
-| Program + English, Hindi, and Tamil models | 3.1 GB | 18 seconds more on the test connection |
+On one clean test connection, the program installed in 24 seconds, the English image models took another 68 seconds, the text models took another 92 seconds, and Hindi plus Tamil took another 18 seconds. Network speed and model hosts can make this take several minutes.
 
-Network speed and model hosts can make these downloads take several minutes. The first
-model-backed text run took 16 seconds in the clean test. A clear synthetic image took 13
-seconds; the real 19-image evaluation averaged 53.9 seconds per image. Difficult scans can
-take more than 100 seconds. Running every model may need about 4 GB of free memory.
+> [!INFO]
+> The first model-backed text run took 16 seconds in the clean test. A clear synthetic image took 13 seconds; the 19 real test images averaged 53.9 seconds each. Difficult scans can take more than 100 seconds.
 
-## Use from Terminal
+## Usage
 
-Use fake data for a first check:
+First, confirm that the install works with fake data. Fake data is used here only so you do not put real personal information into your Terminal history:
 
 ```bash
 printf 'Email alex@example.com or call +1 415 555 0134' | \
   hold-my-data text --who everyone --entities EMAIL,PHONE --no-gliner
 ```
 
-Redact a text or Markdown file. The original is kept:
+Then use it on a real text or Markdown file. The original file stays unchanged:
 
 ```bash
 hold-my-data doc -i notes.md --who everyone --context india_full
-# writes notes.redacted.md
+# creates notes.redacted.md
 ```
 
-Redact an image after downloading the OCR model:
+For an image, download the image model first and then run:
 
 ```bash
 hold-my-data image -i photo.png -o photo.redacted.png \
   --who everyone --context india_full
 ```
 
-Hold My Data does not read PDF files directly yet. Extract a PDF to text or convert its
-pages to images first.
+Hold My Data does not read PDFs directly yet. Extract a PDF to text or convert its pages to images first.
 
-### Redact only your own information
+### Redact only my information
 
-This mode is optional. It stores the details you enter only in
-`~/.holdmydata/identity.yaml` on your Mac.
+This is optional. It saves the details you enter to `~/.holdmydata/identity.yaml` on your Mac and uses them only when you choose `--who mine`.
 
 ```bash
 hold-my-data setup
 hold-my-data doc -i notes.md --who mine --context india_full
 ```
 
-Normal redaction does not ask for or require your personal details.
+Normal redaction does not ask for or require your personal details. `--who mine` is not supported for images; images always redact everyone's detected information.
 
 ## Use as a Python library
 
-Hold My Data is a local Python library, not a hosted API. Install it into a project from the
-clone:
+Hold My Data is a local Python library, not a hosted API. Install it into a project from the clone:
 
 ```bash
 git clone https://github.com/gititya/hold-my-data.git
@@ -161,74 +176,17 @@ output_path = hmd.redact_file(
 )
 ```
 
-An integrating product can add its own entity types at runtime with `holdmydata.extend()`.
-See [INTEGRATION.md](INTEGRATION.md) for the integration contract.
-
-## What it detects, and how well
-
-Precision means: of everything flagged, how much was correct. Recall means: of everything
-that should have been flagged, how much was found. This project favors recall because a
-false alarm is safer than leaked personal information.
-
-The current text evaluation contains 1,051 labelled examples. Overall precision is
-**0.701**, recall is **0.990**, and F1 is **0.821**. The raw labelled files are not public
-because some contain real personal documents; the evaluation code is included.
-
-### Measured text results
-
-| Entity | Precision | Recall | Labelled positives |
-|---|---:|---:|---:|
-| Person name | 0.912 | 0.995 | 910 |
-| Indian PAN | 1.000 | 1.000 | 19 |
-| Indian GSTIN | 1.000 | 1.000 | 4 |
-| Indian Aadhaar | 1.000 | 1.000 | 3 |
-| Indian voter ID | 1.000 | 1.000 | 3 |
-| Indian vehicle registration | 1.000 | 1.000 | 4 |
-| Indian passport | 0.625 | 1.000 | 5 |
-| Indian phone | 1.000 | 1.000 | 2 |
-| Email | 1.000 | 1.000 | 4 |
-| Anthropic, OpenAI, OpenRouter, and ElevenLabs keys combined | 1.000 | 1.000 | 11 |
-| Address | 0.143 | 1.000 | 6 |
-| Date of birth | 0.015 | 1.000 | 4 |
-| General phone | 0.250 | 1.000 | 1 |
-| Customer ID | 0.000 | not measured | 0 |
-
-Low address and date precision means the tool hides too much, not that the measured items
-leaked. Counts below about 20 are too small to support a strong accuracy claim.
-
-A separate small US-format smoke set had one positive per type: US driver licence, ITIN,
-and passport scored 1.000 precision/1.000 recall; SSN scored 0.500/1.000; bank number scored
-0.333/1.000. Treat these as wiring checks, not reliable accuracy estimates.
-
-The following configured types do not yet have enough labelled examples for a public
-precision/recall number:
-
-- Google, GitHub, Slack, and Stripe keys; JWTs; private keys; credential-bearing URLs and
-  connection strings;
-- credit cards and IP addresses;
-- Indian UPI, IFSC, pincode, and driving licence;
-- all six UK identifier types; and
-- all six medical types.
-
-They are implemented, but “not measured” does not mean either 0% or 100% accuracy.
-
-### Images
-
-On the same 19-image corpus, PaddleOCR found 31 of 31 hand-checked text targets: a 100% OCR
-text-extraction recall proxy. That is not a complete PII precision/recall score. Image
-redaction can still miss text that OCR reads incorrectly, and the quality gate refuses to
-write an output when a scan is too unclear.
+An integrating product can add its own entity types at runtime with `holdmydata.extend()`. See [INTEGRATION.md](INTEGRATION.md) for the integration contract.
 
 ## Privacy and safety design
 
-- Redaction blocks outbound sockets. Only `download-models` enables network access, in a
-  separate process.
+- Command-line redaction blocks outbound sockets. Only `download-models` enables network access, in a separate process.
 - Models and optional identity data live under `~/.holdmydata/`.
-- Output is written to a new file by default. Existing output is not overwritten unless
-  `--force` is passed.
-- If OCR or a detector fails, the command refuses the file instead of returning an
-  apparently safe copy.
+- Output is written to a new file by default. An existing output is not overwritten unless `--force` is passed.
+- If OCR or a detector fails, the command refuses the file instead of returning an apparently safe copy.
 - Images use solid boxes, not reversible blur.
+
+The Python library does not install the command-line tool's network block automatically. Products using the library must provide and test their own network boundary. See [INTEGRATION.md](INTEGRATION.md).
 
 ## Known limits
 
@@ -236,14 +194,12 @@ write an output when a scan is too unclear.
 - Kannada OCR is not supported. Hindi and Tamil are optional.
 - Blurry, dark, rotated, or unusual scans can still lose text during OCR.
 - US, UK, and medical coverage needs larger labelled evaluations.
-- Address and date-of-birth detection currently over-redact.
-- `--who mine` is not supported for images; images always redact everyone’s detected data.
+- Address and date-of-birth detection currently over-redacts.
+- Image redaction cannot currently target only your own information.
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and
-[SECURITY.md](SECURITY.md). Do not put real personal information, credentials, or private
-documents in an issue, test, or pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). Do not put real personal information, credentials, or private documents in an issue, test, or pull request.
 
 ## License
 
