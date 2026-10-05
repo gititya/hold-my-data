@@ -402,3 +402,25 @@ entities:
     severity: high
     region: india
     replacement: "[IN_PHONE]"
+
+  # ---- India, added 2026-10-03 after a real lease left these visible ----
+  - name: IN_BANK_ACCOUNT
+    description: an Indian bank account number written after "Account No" or "A/c"
+    detect_with: [regex]
+    severity: critical
+    region: india
+    replacement: "[BANK_ACCOUNT]"
+
+  - name: IN_PAYMENT_REF
+    description: a NEFT, RTGS, IMPS or UTR payment reference number
+    detect_with: [regex]
+    severity: medium
+    region: india
+    replacement: "[PAYMENT_REF]"
+
+  - name: IN_PROPERTY_UNIT
+    description: a flat, apartment or parking unit number, like "Apt Maple A Wing 204"
+    detect_with: [regex]
+    severity: medium
+    region: india
+    replacement: "[UNIT]"

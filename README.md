@@ -107,6 +107,15 @@ With every English model, expect about **3.0 GB** of total disk use. Adding Hind
 > [!INFO]
 > The first model-backed text run took 16 seconds in the clean test. A clear synthetic image took 13 seconds; the 19 real test images averaged 53.9 seconds each. Difficult scans can take more than 100 seconds.
 
+## Mac app
+
+A small Mac app (Apple Silicon, macOS 15 or newer): drop files, folders or PDFs, choose what to hold, and it saves redacted copies. Close the window and it stays in the menu bar.
+
+1. Download `HoldMyData-0.2.3.dmg` from the [latest release](https://github.com/gititya/hold-my-data/releases/latest).
+2. Open it and drag Hold My Data to Applications.
+3. The first launch is blocked because the app is not notarised. Open System Settings, Privacy & Security, and click **Open Anyway**.
+4. Click **Set Up** (needs internet, about 1.9 GB). After that it runs offline.
+
 ## Usage
 
 First, confirm that the install works with fake data. Fake data is used here only so you do not put real personal information into your Terminal history:
@@ -130,7 +139,11 @@ hold-my-data image -i photo.png -o photo.redacted.png \
   --who everyone --context india_full
 ```
 
-Hold My Data does not read PDFs directly yet. Extract a PDF to text or convert its pages to images first - I love using [ihatepdf](https://www.ihatepdf.cv/) or [marker](https://github.com/datalab-to/marker) or [markitdown](https://github.com/microsoft/markitdown), depending on how your PDFs are. 
+Redact a PDF. Each page is read as an image and the result is a new flattened PDF with solid boxes, so it has no selectable text and nothing hidden is left behind. Expect about a minute per page.
+
+```bash
+hold-my-data pdf -i lease.pdf -o lease.redacted.pdf --who everyone --context india_full
+```
 
 ### Redact only my information
 
@@ -186,7 +199,8 @@ The Python library does not install the command-line tool's network block automa
 
 ## Known limits
 
-- No direct PDF ingestion or graphical app in v0.1.1. Coming soon!
+- PDF output is flattened: pages become images and lose selectable text.
+- Handwriting and signatures are not read.
 - Blurry, dark, rotated, or unusual scans can still lose text during OCR.
 - US, UK, and medical coverage needs larger labelled evaluations.
 - Address and date-of-birth detection currently over-redacts.

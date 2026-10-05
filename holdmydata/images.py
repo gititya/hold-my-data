@@ -46,6 +46,11 @@ class OcrEmpty(RedactionFailed):
 MIN_OCR_CONFIDENCE = 0.5
 MIN_OCR_WORDS = 5
 
+# Bar for the per-line name rescan on PDF pages. The page-wide pass uses the context bar
+# (0.4); a name that scored 0.34 in a page and 0.98 alone on its line is what this recovers.
+LINE_RESCAN_THRESHOLD = 0.31  # not 0.3: a bare pincode scores 0.3, and a pincode inside an address
+# would then outrank the address (deterministic hits win overlaps) and erase it.
+
 # Same garbage filter used on the text path's OCR-adjacent cleanup and the old Tesseract
 # pipeline: a token below MIN_OCR_CONFIDENCE that also LOOKS like garbage (mostly non-letters,
 # or a repeated-character run) is dropped before it can inflate the gate's word count or mean
@@ -100,9 +105,16 @@ def reset_ocr_engines() -> None:
     _ocr.clear()
 
 
-def _paddle_ocr(lang: str = "en"):
-    """Lazily construct (and cache) one PaddleOCR pipeline per language."""
-    if lang not in _ocr:
+def _paddle_ocr(lang: str = "en", flat: bool = False):
+    """Lazily construct (and cache) one PaddleOCR pipeline per language.
+
+    `flat=True` turns off page unwarping and rotation and asks for word-level boxes. Unwarping
+    returns coordinates in a re-drawn copy of the page, not in the image we hold, so boxes
+    drift off the real text. Fine for the photo path (it has a tall safety margin); wrong for
+    PDF pages, where we want boxes tight on the words.
+    """
+    key = (lang, flat)
+    if key not in _ocr:
         local_dir = os.environ.get(MODEL_DIR_ENV)
         if local_dir:
             os.environ.setdefault("PADDLE_PDX_CACHE_HOME", str(Path(local_dir) / "paddlex_cache"))
@@ -116,43 +128,59 @@ def _paddle_ocr(lang: str = "en"):
         from paddleocr import PaddleOCR
 
         logging_safe.debug(f"loading PaddleOCR ({lang})")
-        _ocr[lang] = PaddleOCR(use_angle_cls=True, lang=lang)
-    return _ocr[lang]
+        extra = dict(use_doc_unwarping=False, use_doc_orientation_classify=False,
+                     return_word_box=True) if flat else {}
+        _ocr[key] = PaddleOCR(use_angle_cls=True, lang=lang, **extra)
+    return _ocr[key]
 
 
-def _ocr_pass(image, lang: str):
-    """Returns (texts, scores, boxes) -- PaddleOCR's native per-line units: a text line, its
-    0-1 confidence, and an [xmin, ymin, xmax, ymax] box, all as parallel lists.
+def _ocr_pass(image, lang: str, flat: bool = False):
+    """Returns (texts, scores, boxes, words) -- PaddleOCR's native per-line units: a text line,
+    its 0-1 confidence, and an [xmin, ymin, xmax, ymax] box, as parallel lists. `words` is a
+    per-line list of (start, end, box) character ranges with their own boxes when flat, else
+    a list of None.
     """
     import numpy as np
 
-    result = _paddle_ocr(lang).ocr(np.array(image))
-    texts, scores, boxes = [], [], []
+    result = _paddle_ocr(lang, flat).ocr(np.array(image))
+    texts, scores, boxes, words = [], [], [], []
     for page in result:
         if not isinstance(page, dict):
             continue
-        texts.extend(page.get("rec_texts", []))
+        page_texts = page.get("rec_texts", [])
+        texts.extend(page_texts)
         scores.extend(page.get("rec_scores", []))
         boxes.extend(page.get("rec_boxes", []))
-    return texts, scores, boxes
+        if flat and len(page.get("text_word", [])) == len(page_texts):
+            for pieces, wboxes in zip(page["text_word"], page["text_word_boxes"]):
+                pos, line = 0, []
+                for piece, box in zip(pieces, wboxes):
+                    line.append((pos, pos + len(piece), [int(v) for v in box]))
+                    pos += len(piece)
+                words.append(line)
+        else:
+            words.extend([None] * len(page_texts))
+    return texts, scores, boxes, words
 
 
-def _run_ocr(image):
-    return _ocr_pass(image, "en")
+def _run_ocr(image, flat: bool = False):
+    return _ocr_pass(image, "en", flat)
 
 
-def _run_supplementary_ocr(image, langs=()):
+def _run_supplementary_ocr(image, langs=(), flat: bool = False):
     """Extra OCR passes beyond English -- see SUPPLEMENTARY_LANGS above for why these never
     touch gate scoring, and why they default to none at all. Returns the same
-    (texts, scores, boxes) shape as _run_ocr, concatenated across every requested language.
+    (texts, scores, boxes, words) shape as _run_ocr, concatenated across every requested
+    language.
     """
-    texts, scores, boxes = [], [], []
+    texts, scores, boxes, words = [], [], [], []
     for lang in langs:
-        t, s, b = _ocr_pass(image, lang)
+        t, s, b, w = _ocr_pass(image, lang, flat)
         texts.extend(t)
         scores.extend(s)
         boxes.extend(b)
-    return texts, scores, boxes
+        words.extend(w)
+    return texts, scores, boxes, words
 
 
 def _quality_gate(texts, scores):
@@ -181,13 +209,16 @@ def _check_ocr_confidence(mean_conf: float, word_count: int) -> None:
         )
 
 
-def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr_langs: tuple = ()) -> str:
+def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr_langs: tuple = (),
+                 counts_out: dict = None, extra_terms: tuple = ()) -> str:
     """Paint solid black over every detected region. Never blur -- blur is reversible.
 
     `ocr_langs` -- extra OCR languages beyond the always-on English pass (e.g. ("hi", "ta")).
     Defaults to none: most documents don't need it, and each language is its own resident
     multi-submodel OCR pipeline (see SUPPLEMENTARY_LANGS above) -- opt in per call, not on by
     default.
+
+    `counts_out`, if given, is filled with {entity_type: number found} for the receipt.
     """
     image = Image.open(in_path)
     # Phone photos routinely carry an EXIF orientation tag rather than baked-in rotation --
@@ -196,8 +227,39 @@ def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr
     image = ImageOps.exif_transpose(image) or image
     image = image.convert("RGB")
 
+    image, counts = redact_pil(redactor, image, ocr_langs, extra_terms=extra_terms)
+    if counts_out is not None:
+        counts_out.update(counts)
+
+    atomic_io.save_image(image, Path(out_path), force=force)
+    logging_safe.info(f"wrote redacted image to {out_path}")
+    return out_path
+
+
+def _merge(spans):
+    """Join character spans that touch or sit within 3 characters of each other."""
+    out = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1] + 3:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def redact_pil(redactor, image, ocr_langs: tuple = (), tight: bool = False, extra_terms: tuple = ()):
+    """OCR -> detect -> paint boxes on an RGB PIL image. Returns (image, {entity_type: count}).
+
+    Shared by single images and PDF pages (pdfs.py), so both get the same OCR gate and the
+    same fail-closed behaviour.
+
+    `tight=True` boxes only the words a match touches, with a few pixels of margin, instead of
+    the whole line plus a tall safety margin. It runs OCR without page unwarping so the word
+    boxes sit on the pixels we hold. Used for PDF pages, which we render ourselves. Photos
+    keep the generous default -- see the long comment below.
+    """
     try:
-        texts, scores, boxes = _run_ocr(image)
+        texts, scores, boxes, words = _run_ocr(image, flat=tight)
     except Exception as exc:
         raise RedactionFailed(
             f"image OCR failed ({type(exc).__name__}: {exc}). Nothing was written."
@@ -211,13 +273,15 @@ def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr
     # rather than redact with only partial script coverage.
     if ocr_langs:
         try:
-            extra_texts, _extra_scores, extra_boxes = _run_supplementary_ocr(image, ocr_langs)
+            extra_texts, _extra_scores, extra_boxes, extra_words = _run_supplementary_ocr(
+                image, ocr_langs, flat=tight)
         except Exception as exc:
             raise RedactionFailed(
                 f"supplementary-language OCR failed ({type(exc).__name__}: {exc}). Nothing was written."
             ) from exc
         texts = texts + extra_texts
         boxes = list(boxes) + list(extra_boxes)
+        words = list(words) + list(extra_words)
 
     # One joined text, one OCR-detected line per line, so a PII span found by analyze() can
     # be traced back to the line(s) -- and therefore the box(es) -- it came from.
@@ -236,12 +300,36 @@ def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr
             "was written."
         ) from exc
 
-    hit_lines = set()
+    if extra_terms:
+        from .engine import term_hits
+
+        results = list(results) + term_hits(joined, extra_terms)
+
+    if tight:
+        # A name's (or address's) score depends on the text around it: a name scored 0.98 alone
+        # on its line but 0.34 inside a whole page, under the 0.4 cut-off. Scan each line on
+        # its own too and keep what the page-wide pass missed. This only adds redactions.
+        results = list(results)
+        for i, line in enumerate(texts):
+            if len(line.strip()) < 12:
+                continue
+            for r in redactor.analyze(line, threshold=LINE_RESCAN_THRESHOLD):
+                # Lines read alone are noisy (list numbers became customer IDs, "Themselves"
+                # a name), so only a name or an address is allowed to add a redaction.
+                if r.entity_type not in ("PERSON", "ADDRESS") or not re.search(r"[^\W\d_]{3}", line[r.start:r.end]):
+                    continue  # a list number like "5." is not a name
+                r.start += line_starts[i]
+                r.end += line_starts[i]
+                if not any(o.entity_type == r.entity_type and o.start <= r.start and r.end <= o.end
+                           for o in results):
+                    results.append(r)
+
+    hit_lines = {}
     for r in results:
         for i, start in enumerate(line_starts):
             end = start + len(texts[i])
             if r.start < end and start < r.end:
-                hit_lines.add(i)
+                hit_lines.setdefault(i, []).append((max(r.start, start) - start, min(r.end, end) - start))
 
     # PaddleOCR's detection box for a text line is not always a tight, correctly-placed fit
     # around the glyphs it recognised there. Found by direct pixel inspection on two real
@@ -257,7 +345,7 @@ def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr
     # substitute for fixing the box source if a more precise cause is found later -- a
     # deliberately generous mitigation in the meantime.
     draw = ImageDraw.Draw(image)
-    for i in hit_lines:
+    for i, spans in hit_lines.items():
         raw = [int(v) for v in boxes[i]]
         # A box's own [x1,y1,x2,y2] is not guaranteed x1<=x2, y1<=y2 -- a rotated or
         # otherwise unusual detection region can come back inverted. Normalise before doing
@@ -268,6 +356,17 @@ def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr
         h, w = y2 - y1, x2 - x1
         margin_x = max(10, w // 6)
         margin_top, margin_bottom = max(20, h * 2), max(15, h)
+        if tight and words[i]:
+            # Cover exactly the words the span touches, plus a few pixels for anti-aliasing.
+            pad = max(3, h // 8)
+            for a, b in _merge(spans):
+                hit = [box for ws, we, box in words[i] if ws < b and a < we]
+                if not hit:
+                    continue
+                draw.rectangle([max(0, min(c[0] for c in hit) - pad), max(0, min(c[1] for c in hit) - pad),
+                                min(image.width, max(c[2] for c in hit) + pad),
+                                min(image.height, max(c[3] for c in hit) + pad)], fill=(0, 0, 0))
+            continue
         # A box can also come back with coordinates outside the image entirely (seen on a
         # large rotated JPEG that PaddleOCR internally downsizes then rescales for
         # detection -- rounding in that rescale can push a box's edge past the real bounds).
@@ -281,6 +380,6 @@ def redact_image(redactor, in_path: str, out_path: str, force: bool = False, ocr
             fill=(0, 0, 0),
         )
 
-    atomic_io.save_image(image, Path(out_path), force=force)
-    logging_safe.info(f"wrote redacted image to {out_path}")
-    return out_path
+    from .engine import count_spans
+
+    return image, count_spans(results)
