@@ -70,3 +70,24 @@ def test_secrets_context_ignores_email(redactor):
 def test_unknown_context_fails_loudly():
     with pytest.raises(cfg.ConfigError, match="unknown context"):
         Redactor(cfg.load(), context="nope", use_gliner=False)
+
+
+def test_lease_style_numbers_are_found():
+    import holdmydata as hmd
+
+    text = ("Account No.123456789012, Axis. NEFT/RTGS REF No : 987654321098. "
+            "Apt Maple A Wing 204. parking No. AL-B204-17.")
+    out = hmd.redact_text(text, context="india_only", use_gliner=False)
+
+    for secret in ("123456789012", "987654321098", "204", "B204-17"):
+        assert secret not in out
+
+
+def test_receipt_counts_a_span_two_detectors_found_once():
+    from presidio_analyzer import RecognizerResult as R
+
+    from holdmydata.engine import count_spans
+
+    hits = [R("PHONE", 5, 20, 0.7), R("IN_PHONE", 5, 20, 1.0), R("EMAIL", 30, 40, 1.0)]
+
+    assert count_spans(hits) == {"IN_PHONE": 1, "EMAIL": 1}

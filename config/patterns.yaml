@@ -202,3 +202,27 @@ IN_PHONE:
   - name: in_mobile
     regex: '\b(?:\+91[\s\-]?|0)?[6-9]\d{4}[\s\-]?\d{5}\b'
     score: 0.6
+
+# ---- added 2026-10-03: bank account, payment reference and unit numbers ----
+IN_BANK_ACCOUNT:
+  - name: account_after_label
+    # Needs the label. A bare 9-18 digit run is too common (order ids, phone + code) to flag.
+    # The label is covered along with the digits; that is the price of no lookbehind.
+    regex: '(?i)\b(?:a/c|acc(?:ount)?)\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*\d{9,18}\b'
+    score: 0.9
+
+IN_PAYMENT_REF:
+  - name: neft_rtgs_ref
+    # a reference must contain a digit, so "NEFT transferring" does not match
+    regex: '(?i)\b(?:NEFT|RTGS|IMPS|UTR)(?:[/\s]+(?:NEFT|RTGS|IMPS|UTR))?\s*(?:ref(?:erence)?\.?)?\s*(?:no\.?|number|#)?\s*[:\-]?\s*(?=[A-Z0-9]*\d)[A-Z0-9]{10,22}\b'
+    score: 0.9
+
+IN_PROPERTY_UNIT:
+  - name: apt_flat_unit
+    # up to three name words, an optional wing/block/tower, then the number: "Apt Maple A Wing
+    # 204", "Flat 3A", "Unit No. 12B". Must end in digits.
+    regex: '(?i)\b(?:apt|apartment|flat|unit)\.?\s*(?:no\.?|#)?\s*[:\-]?\s*(?:[a-z]+\s+){0,3}?(?:(?:wing|block|tower)\s+)?[a-z]?\d{1,5}[a-z]?\b'
+    score: 0.6
+  - name: parking_slot
+    regex: '(?i)\bparking\s*(?:slot|space|lot)?\s*(?:no\.?|number|#)?\s*[:\-]?\s*[A-Z0-9]+(?:-[A-Z0-9]+){1,3}\b'
+    score: 0.7

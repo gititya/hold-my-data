@@ -109,10 +109,9 @@ def _resolve_ocr_langs(args) -> tuple:
 
 
 def _entity_counts(results) -> dict:
-    counts = {}
-    for r in results:
-        counts[r.entity_type] = counts.get(r.entity_type, 0) + 1
-    return counts
+    from .engine import count_spans
+
+    return count_spans(results)
 
 
 def _print_receipt(counts: dict) -> None:
@@ -228,13 +227,12 @@ def cmd_download_models(args) -> int:
     ).returncode
 
 
-def cmd_image(args) -> int:
-    from .images import redact_image
-
+def _redact_visual(args, redact) -> int:
+    """Shared by `image` and `pdf`: both OCR their input and write a new visual file."""
     who = _resolve_who(args)
     if who == "mine":
-        print("REFUSED: --who mine is not supported for images yet — it always redacts "
-              "everyone's info.", file=sys.stderr)
+        print("REFUSED: --who mine is not supported for images or PDFs yet — it always "
+              "redacts everyone's info.", file=sys.stderr)
         return 1
 
     Redactor, RedactionFailed = _engine()
@@ -242,8 +240,10 @@ def cmd_image(args) -> int:
     context, entities = _resolve_context_and_entities(args, cfg)
     redactor = Redactor(cfg, context=context, use_gliner=not args.no_gliner, entities=entities)
     ocr_langs = _resolve_ocr_langs(args)
+    counts = {}
     try:
-        redact_image(redactor, args.input, args.output, force=args.force, ocr_langs=ocr_langs)
+        redact(redactor, args.input, args.output, force=args.force, ocr_langs=ocr_langs,
+               counts_out=counts)
     except atomic_io.WouldOverwrite as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 1
@@ -251,7 +251,20 @@ def cmd_image(args) -> int:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 1
     print(f"wrote {args.output}")
+    _print_receipt(counts)
     return 0
+
+
+def cmd_image(args) -> int:
+    from .images import redact_image
+
+    return _redact_visual(args, redact_image)
+
+
+def cmd_pdf(args) -> int:
+    from .pdfs import redact_pdf
+
+    return _redact_visual(args, redact_pdf)
 
 
 def cmd_eval(args) -> int:
@@ -362,6 +375,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "language is its own resident model (run `fetch_models.py "
                          "--with-indic-ocr` first if you use this).")
     sp.set_defaults(func=cmd_image)
+
+    sp = sub.add_parser("pdf", help="redact a PDF (pages are re-drawn as images; output is flattened)")
+    common(sp)
+    sp.add_argument("-i", "--input", required=True)
+    sp.add_argument("-o", "--output", required=True)
+    sp.add_argument("--ocr-langs", default=None, help="same as `image`")
+    sp.set_defaults(func=cmd_pdf)
 
     sp = sub.add_parser("eval", help="score against labelled examples")
     common(sp)

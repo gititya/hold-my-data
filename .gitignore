@@ -57,3 +57,9 @@ install.sh
 packaging/mac/
 holdmydata/tui.py
 tests/test_tui.py
+
+# --- Mac app build output ---
+macapp/.build/
+dist/*.app/
+dist/*.dmg
+build/engine/

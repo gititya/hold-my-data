@@ -84,7 +84,7 @@ def redact_text(text: str, context: str = "default", who: str = "everyone", use_
 def redact_file(in_path, out_path=None, context: str = "default", who: str = "everyone",
                  force: bool = False, use_gliner: bool = True, ocr_langs: tuple = (),
                  entities: list = None) -> str:
-    """Redact a file to a new file. Dispatches on extension: image formats go through OCR,
+    """Redact a file to a new file. Dispatches on extension: PDFs and image formats go through OCR,
     everything else is treated as plain text. Returns the path written.
 
     `entities`, if given (e.g. ["ADDRESS"]), builds a Redactor scoped to only those entities --
@@ -102,6 +102,13 @@ def redact_file(in_path, out_path=None, context: str = "default", who: str = "ev
     out_path = Path(out_path) if out_path else in_path.with_name(f"{in_path.stem}.redacted{in_path.suffix}")
     cfg = load_config()
     redactor = engine.Redactor(cfg, context=context, use_gliner=use_gliner, entities=entities)
+
+    if in_path.suffix.lower() == ".pdf":
+        if who == "mine":
+            raise ValueError("who='mine' is not supported for PDFs yet -- always redacts everyone's info")
+        from .pdfs import redact_pdf
+
+        return redact_pdf(redactor, str(in_path), str(out_path), force=force, ocr_langs=ocr_langs)
 
     if in_path.suffix.lower() in _IMAGE_SUFFIXES:
         if who == "mine":

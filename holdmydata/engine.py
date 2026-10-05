@@ -290,7 +290,7 @@ class Redactor:
             kept.append(r)
         return kept
 
-    def analyze(self, text: str, entities: list = None) -> list:
+    def analyze(self, text: str, entities: list = None, threshold: float = None) -> list:
         """`entities`, if given, narrows this ONE call to a subset of this Redactor's active
         entities (e.g. ["ADDRESS"]) -- Presidio's own per-call filter. This does NOT skip
         loading a model that this Redactor was constructed to support -- every recognizer's
@@ -299,7 +299,14 @@ class Redactor:
         only limits what gets searched for in this specific call, useful when reusing one
         already-built Redactor for several narrower asks. Defaults to everything this
         Redactor supports, same as before this parameter existed.
+
+        `threshold`, if given, replaces the context's cut-off for this one call (used to
+        rescan a PDF line at a lower bar). It reaches the name model too.
         """
+        cutoff = self.context.threshold if threshold is None else threshold
+        saved = self._gliner._threshold if self._gliner is not None else None
+        if self._gliner is not None:
+            self._gliner._threshold = cutoff
         wanted = self._active_entities if entities is None else [e for e in entities if e in self._active_entities]
         try:
             results = self._prefer_specific(
@@ -307,7 +314,7 @@ class Redactor:
                     text=_mask_binary_blobs(text),
                     language="en",
                     entities=wanted,
-                    score_threshold=self.context.threshold,
+                    score_threshold=cutoff,
                 )
             )
             return [
@@ -319,6 +326,9 @@ class Redactor:
                 f"a recogniser failed ({type(exc).__name__}: {exc}). Nothing was emitted. "
                 "Partial redaction is not an acceptable degraded mode."
             ) from exc
+        finally:
+            if self._gliner is not None:
+                self._gliner._threshold = saved
 
     # -- anonymisation ---------------------------------------------------------
 
@@ -326,7 +336,9 @@ class Redactor:
         strategy = self.context.strategy
         operators = {}
 
-        for name in self._active_entities:
+        # PERSON is always included: hand-typed "Hide More" words are labelled PERSON even
+        # when the name category is off.
+        for name in dict.fromkeys([*self._active_entities, "PERSON"]):
             entity = self.config.entities[name]
             if strategy == "consistent":
                 operators[name] = OperatorConfig(
@@ -387,3 +399,42 @@ class Redactor:
             # the mapping is a re-identification key -- do not let it outlive the run
             operators.reset_run()
         return out.text
+
+
+def term_hits(text: str, terms) -> list:
+    """Spans for words the user asked to hide by hand (the app's "Hide More"). Case-insensitive,
+    and a multi-word term matches across line breaks. Labelled PERSON: these are mostly names
+    the detector missed.
+    """
+    import re
+
+    from presidio_analyzer import RecognizerResult
+
+    hits = []
+    for term in terms or ():
+        words = str(term).split()
+        if not words:
+            continue
+        pattern = re.compile(r"\s+".join(re.escape(w) for w in words), re.IGNORECASE)
+        hits += [RecognizerResult("PERSON", m.start(), m.end(), 1.0) for m in pattern.finditer(text)]
+    return hits
+
+
+def count_spans(results) -> dict:
+    """{entity_type: how many places}, counting a span two detectors both found once.
+
+    PHONE and IN_PHONE both match the same number; the redacted text only changes once, so the
+    receipt must say 1, not 2. Overlapping hits form one place, named by the highest score.
+    """
+    counts, current_end, best = {}, -1, None
+    for r in sorted(results, key=lambda r: (r.start, -r.end)):
+        if r.start < current_end:
+            current_end = max(current_end, r.end)
+            if r.score > best.score:
+                counts[best.entity_type] -= 1
+                counts[r.entity_type] = counts.get(r.entity_type, 0) + 1
+                best = r
+            continue
+        counts[r.entity_type] = counts.get(r.entity_type, 0) + 1
+        current_end, best = r.end, r
+    return {k: v for k, v in counts.items() if v}
